@@ -175,3 +175,23 @@ void percwrite(char *percfile, int map[L][L], int ncluster)
   fclose(fp);
   printf("percwrite: file closed\n");
 }
+
+
+
+int **alloc_2d_int(int rows,int cols){
+  int *data =(int *)malloc(rows*cols*sizeof(int));
+  int **array = (int**)malloc(rows*sizeof(int*));
+  for(int i=0;i<rows;i++)
+      array[i]=&(data[cols*i]);
+  return array;
+}
+
+void display_matrix(int** matrix,int rows,int cols){
+  int i,j;
+  for(i=0;i<rows;i++){
+    for(j=0;j<cols;j++){
+      printf("%d\t",matrix[i][j]);
+    }
+    printf("\n");
+  } 
+}

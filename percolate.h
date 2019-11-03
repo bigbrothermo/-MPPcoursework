@@ -19,6 +19,12 @@
 #define M L
 #define N L
 
+
+#define ndims 1
+#define TRUE  1
+#define FALSE 0
+
+
 /*
  *  Prototypes for supplied functions
  */
@@ -35,3 +41,8 @@ void percwrite(char *percfile, int map[M][N], int ncluster);
 
 void rinit(int ijkl);
 float uni(void);
+
+
+
+int **alloc_2d_int(int rows,int cols);
+void display_matrix(int** matrix,int rows,int cols);
