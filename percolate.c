@@ -70,8 +70,12 @@ int main(int argc, char *argv[])
 
   
   int rank,size;
+  int tag=0;
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
   MPI_Comm_size(MPI_COMM_WORLD,&size);
+  MPI_Status status[2];
+  MPI_Request request[2];
+
 
   int direction,disp;
   int left,right;
@@ -103,6 +107,17 @@ int main(int argc, char *argv[])
   MPI_Cart_create(MPI_COMM_WORLD,ndims,dims,period,reorder,&topo_comm);
   MPI_Comm_rank(topo_comm,&rank);
   MPI_Cart_shift(topo_comm,direction,disp,&left,&right);
+
+
+
+  //init new vector
+  /*
+  MPI_datatype column_type;
+  MPI_Type_vector(per_process_area,per_process_M,L,MPI_INT,&column_type);
+  MPI_Type_commit(&column_type);
+  */
+
+
 
 
 
@@ -148,7 +163,7 @@ int main(int argc, char *argv[])
     for(j=0;j<L;j++){
       map[i][j]=i*L+j;
     }
-   }*/ 
+   }*/
 
   printf("percolate: rho = %f, actual density = %f\n",
 	 rho, 1.0 - ((double) nhole)/((double) L*L) );
@@ -164,13 +179,14 @@ int main(int argc, char *argv[])
   
   /*
   if(rank==0){
-    for(i=per_process_M;i<per_process_M*2;i++){
+    for(i=0;i<M;i++){
       for(j=0;j<N;j++){
         printf("%d\t",map[i][j]);
       }
       printf("\n");
     }
-  }*/
+  }
+  */
   
 
   MPI_Scatter(&(map[0][0]),per_process_area,MPI_INT,&(local_map[0][0]),per_process_area,MPI_INT,0,topo_comm); 
@@ -204,15 +220,43 @@ int main(int argc, char *argv[])
   }
 
   for (j=0; j <= N+1; j++)  // zero the left and right halos
-    {
+  {
       local_old[0][j]   = 0;
       local_old[per_process_M+1][j] = 0;
+  }
+
+
+  //use topology to send halo
+  /*
+    MPI_Issend(&(local_old[per_process_M][0]),N+2,MPI_INT,right,tag,topo_comm,&request);
+    MPI_Recv((&local_old[0][0]),N+2,MPI_INT,left,tag,topo_comm,&status);
+    MPI_Wait(&request,&status);
+
+    if(rank==3){
+    printf("rank %d receives:\n",rank);
+    for(j=0;j<N+2;j++){
+      printf("%d\t",local_old[0][j]);
     }
+    printf("\nrank %d send:\n",rank);
+    for(j=0;j<N+2;j++){
+      printf("%d\t",local_old[per_process_M][j]);
+    }
+    printf("\n");
+    }
+*/
+
+
+
 
 
   /*
    *  Update for a fixed number of iterations
-   */ 
+   *
+   */
+
+
+
+
 
   maxstep = 16*L;
   printfreq = 100;
@@ -223,6 +267,42 @@ int main(int argc, char *argv[])
   while (step <= maxstep)
   {
     nchange = 0;
+    if(rank!=0 && rank!=size-1){
+    MPI_Issend(&(local_old[per_process_M][0]),N+2,MPI_INT,right,tag,topo_comm,&(request[0]));
+    MPI_Issend(&(local_old[1][0]),N+2,MPI_INT,left,tag,topo_comm,&(request[1]));
+    MPI_Recv((&local_old[0][0]),N+2,MPI_INT,left,tag,topo_comm,&(status[0]));
+    MPI_Recv((&local_old[per_process_M+1][0]),N+2,MPI_INT,right,tag,topo_comm,&(status[1]));
+    MPI_Wait(&request[0],&status[0]);
+    MPI_Wait(&request[1],&status[1]);
+    }
+
+    if(rank==0){
+    MPI_Issend(&(local_old[per_process_M][0]),N+2,MPI_INT,right,tag,topo_comm,&(request[0]));
+    MPI_Recv(&(local_old[per_process_M+1][0]),N+2,MPI_INT,right,tag,topo_comm,&(status[1]));
+    MPI_Wait(&request[0],&status[0]);
+    MPI_Wait(&request[1],&status[1]);
+    }
+
+    if(rank==size-1){
+      MPI_Issend(&(local_old[1][0]),N+2,MPI_INT,left,tag,topo_comm,&(request[1]));
+      MPI_Recv((&local_old[0][0]),N+2,MPI_INT,left,tag,topo_comm,&(status[0]));
+      MPI_Wait(&request[0],&status[0]);
+      MPI_Wait(&request[1],&status[1]);
+
+
+    }
+
+    if(rank==3){
+    printf("rank %d receives:\n",rank);
+    for(j=0;j<N+2;j++){
+      printf("%d\t",local_old[0][j]);
+    }
+    printf("\nrank %d send:\n",rank);
+    for(j=0;j<N+2;j++){
+      printf("%d\t",local_old[per_process_M][j]);
+    }
+    printf("\n");
+    }
 
     for (i=1; i<=per_process_M; i++)
      {
@@ -256,13 +336,13 @@ int main(int argc, char *argv[])
        *  Report progress every now and then
        */
 
-    /*
+    
     if (step % printfreq == 0)
     {
     printf("percolate: number of changes on step %d is %d\n",
      step, nchange);
     }
-    */
+    
 
       /*
        *  Copy back in preparation for next step, omitting halos
@@ -275,6 +355,19 @@ int main(int argc, char *argv[])
         local_old[i][j] = local_new[i][j];
         }
       }
+
+  for (i=0; i <= per_process_M+1; i++)  // zero the bottom and top halos
+  {
+      local_old[i][0]   = 0;
+      local_old[i][N+1] = 0;
+  }
+
+  for (j=0; j <= N+1; j++)  // zero the left and right halos
+  {
+      local_old[0][j]   = 0;
+      local_old[per_process_M+1][j] = 0;
+  }
+
 
         step++;
     }
@@ -302,15 +395,6 @@ if (nchange != 0)
          local_map[i-1][j-1] = local_old[i][j];
       }
     }
-
-
-
-
-
-
-
-
-
 
 
   MPI_Barrier(MPI_COMM_WORLD);
@@ -344,12 +428,57 @@ if (nchange != 0)
 
 
 
+
   //
   
   //free(local_map[0]);
-  //free(local_map);
-  //printf("free successfully\n");
-  //MPI_Barrier(MPI_COMM_WORLD);
+  free(local_map);
+  MPI_Barrier(MPI_COMM_WORLD);
+  printf("free successfully\n");
+
+  if(rank==0){
+    /*
+   *  Test to see if percolation occurred by looking for positive numbers
+   *  that appear on both the top and bottom edges
+   */
+
+  perc = 0;
+
+  for (itop=0; itop < L; itop++)
+    {
+      if (map[itop][L-1] > 0)
+  {
+    for (ibot=0; ibot < L; ibot++)
+      {
+        if (map[itop][L-1] == map[ibot][0])
+    {
+      perc = 1;
+    }
+      }
+  }
+    }
+
+  if (perc != 0)
+    {
+      printf("percolate: cluster DOES percolate\n");
+    }
+  else
+    {
+      printf("percolate: cluster DOES NOT percolate\n");
+    }
+
+  /*
+   *  Write the map to the file "map.pgm", displaying only the very
+   *  largest cluster (or multiple clusters if exactly the same size).
+   *  If the last argument here was 2, it would display the largest 2
+   *  clusters etc.
+   */
+
+  percwrite("map.pgm", map, 1);
+  
+  }
+
+  
 
 
   //display_matrix(local_map,per_process_M,N);
