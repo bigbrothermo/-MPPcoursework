@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <mpi.h>
 #include "percolate.h"
+#include <math.h>
 
 /*
  * Serial program to test for percolation of a cluster.
@@ -36,7 +37,7 @@ int main(int argc, char *argv[])
    *  Local variables
    */
 
-  int i, j, nhole, step, maxstep, oldval, newval, nchange, printfreq;
+  int i, j, nhole, step, maxstep, oldval, newval, nchange,local_change, printfreq;
   int itop, ibot, perc;
   double r;
 
@@ -73,8 +74,11 @@ int main(int argc, char *argv[])
   int tag=0;
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
   MPI_Comm_size(MPI_COMM_WORLD,&size);
-  MPI_Status status[2];
-  MPI_Request request[2];
+  MPI_Status status[4];
+  MPI_Request request[4];
+
+  MPI_Status loop_status;
+  MPI_Request loop_request;
 
 
   int direction,disp;
@@ -87,14 +91,19 @@ int main(int argc, char *argv[])
 
   int per_process_M=M/size;
   int per_process_area=per_process_M*N;
-  int **local_map=alloc_2d_int(per_process_M,N);
+  
+  int topo_length=sqrt(size);
+  int per_process_L=L/topo_length;
 
-  printf("each M=%d,N=%d\n",per_process_M,N);
+  int **local_map=alloc_2d_int(per_process_L,per_process_L);
+
+  printf("each M=%d,N=%d\n",per_process_L,per_process_L);
 
   MPI_Barrier(MPI_COMM_WORLD);
 
 
   //topology
+  /*
   dims[0]=0;
   period[0]=TRUE;
   reorder=FALSE;
@@ -107,6 +116,47 @@ int main(int argc, char *argv[])
   MPI_Cart_create(MPI_COMM_WORLD,ndims,dims,period,reorder,&topo_comm);
   MPI_Comm_rank(topo_comm,&rank);
   MPI_Cart_shift(topo_comm,direction,disp,&left,&right);
+  */
+
+  //2-d topology
+  int dims_2d[2]={0,0};
+  int periods_2d[2]={FALSE,FALSE};
+  int reorder_2d=TRUE;
+  int ndims_2d=2;
+  int per_process_area_2d=per_process_L*per_process_L;
+
+  MPI_Comm topo_comm_2d;
+
+  MPI_Dims_create(size,ndims_2d,dims_2d);
+  MPI_Cart_create(MPI_COMM_WORLD,2,dims_2d,periods_2d,reorder_2d,&topo_comm_2d);
+  
+
+  enum DIRECTIONS {DOWN,UP,LEFT,RIGHT};
+  char* neighbours_names[4]={"down","up","left","right"};
+  int neighbours_rank[4];
+
+  MPI_Cart_shift(topo_comm_2d,1,1,&neighbours_rank[LEFT],&neighbours_rank[RIGHT]);
+  MPI_Cart_shift(topo_comm_2d,0,1,&neighbours_rank[UP],&neighbours_rank[DOWN]);
+  MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+  printf(" rank: %d up:%d down:%d left:%d right:%d  \n",rank,neighbours_rank[UP],neighbours_rank[DOWN],neighbours_rank[LEFT],neighbours_rank[RIGHT]);
+
+  int coords[2];
+  MPI_Cart_coords(topo_comm_2d,rank,ndims_2d,coords);
+
+
+  printf("rank:%d i:%d j:%d \n",rank,coords[0],coords[1]);
+
+  
+
+  //create vector
+  MPI_Datatype batch,tmp;
+  MPI_Type_vector(per_process_L,per_process_L,L,MPI_INT,&batch);
+  MPI_Type_vector(per_process_L,per_process_L,L,MPI_INT,&tmp);
+  MPI_Type_create_resized(tmp,0,sizeof(int),&batch);
+
+  MPI_Type_commit(&batch); 
+
+
 
 
 
@@ -159,11 +209,14 @@ int main(int argc, char *argv[])
 
 
 
-   /*for(i=0;i<L;i++){
+  /*for(i=0;i<L;i++){
     for(j=0;j<L;j++){
       map[i][j]=i*L+j;
     }
    }*/
+
+
+
 
   printf("percolate: rho = %f, actual density = %f\n",
 	 rho, 1.0 - ((double) nhole)/((double) L*L) );
@@ -177,35 +230,67 @@ int main(int argc, char *argv[])
   MPI_Barrier(MPI_COMM_WORLD);
   //scatter map to each prece
   
-  /*
-  if(rank==0){
+  
+  /*if(rank==0){
     for(i=0;i<M;i++){
       for(j=0;j<N;j++){
         printf("%d\t",map[i][j]);
       }
       printf("\n");
     }
-  }
-  */
+  }*/
   
 
-  MPI_Scatter(&(map[0][0]),per_process_area,MPI_INT,&(local_map[0][0]),per_process_area,MPI_INT,0,topo_comm); 
+  
+
+  if(rank==0){
+    int index_i;
+    int index_j;
+    for(i=0;i<size;i++){
+      int index_i=(i/topo_length)*per_process_L;
+      int index_j=(i%topo_length)*per_process_L;
+      printf("index_i:%d index_j:%d i:%d\n",index_i,index_j,i);
+      //printf("per_process_L:%d topo_length:%d\n",per_process_L,topo_length);
+      MPI_Issend(&map[index_i][index_j],1,batch,i,tag,topo_comm_2d,&request[0]);
+    }
+  }
+
+  MPI_Irecv(&local_map[0][0],per_process_L*per_process_L,MPI_INT,0,tag,topo_comm_2d,&request[0]);
+   
+  MPI_Wait(&request[0],&status[0]);
+
+  printf("finish scatter\n");
 
 
 
-/*
+
+  
+
+  /*if(rank==2){
+    display_matrix(local_map,per_process_L,per_process_L);
+  }
+
+  */
+
+
+  //MPI_Scatter(&(map[0][0]),per_process_area,MPI_INT,&(local_map[0][0]),per_process_area,MPI_INT,0,topo_comm);
+
+
+
+
+  /*
    * Initialise the old array: copy the LxL array map to the centre of
    * old, and set the halo values to zero.
-   
-*/
+   */
+
   //int local_old[per_process_area+2][N+2];
   //int local_new[per_process_M+2][N+2];
 
-  int ** local_old=alloc_2d_int(per_process_M+2,N+2);
-  int ** local_new=alloc_2d_int(per_process_M+2,N+2);
+  int ** local_old=alloc_2d_int(per_process_L+2,per_process_L+2);
+  int ** local_new=alloc_2d_int(per_process_L+2,per_process_L+2);
 
 
-  for (i=1; i <= per_process_M; i++)
+  for (i=1; i <= per_process_L; i++)
   {
       for (j=1; j <= N; j++)
     {
@@ -213,38 +298,17 @@ int main(int argc, char *argv[])
     }
   }
 
-   for (i=0; i <= per_process_M+1; i++)  // zero the bottom and top halos
+   for (i=0; i <= per_process_L+1; i++)  // zero the bottom and top halos
   {
       local_old[i][0]   = 0;
-      local_old[i][N+1] = 0;
+      local_old[i][per_process_L+1] = 0;
   }
 
-  for (j=0; j <= N+1; j++)  // zero the left and right halos
+  for (j=0; j <= per_process_L+1; j++)  // zero the left and right halos
   {
       local_old[0][j]   = 0;
-      local_old[per_process_M+1][j] = 0;
+      local_old[per_process_L+1][j] = 0;
   }
-
-
-  //use topology to send halo
-  /*
-    MPI_Issend(&(local_old[per_process_M][0]),N+2,MPI_INT,right,tag,topo_comm,&request);
-    MPI_Recv((&local_old[0][0]),N+2,MPI_INT,left,tag,topo_comm,&status);
-    MPI_Wait(&request,&status);
-
-    if(rank==3){
-    printf("rank %d receives:\n",rank);
-    for(j=0;j<N+2;j++){
-      printf("%d\t",local_old[0][j]);
-    }
-    printf("\nrank %d send:\n",rank);
-    for(j=0;j<N+2;j++){
-      printf("%d\t",local_old[per_process_M][j]);
-    }
-    printf("\n");
-    }
-*/
-
 
 
 
@@ -252,7 +316,7 @@ int main(int argc, char *argv[])
   /*
    *  Update for a fixed number of iterations
    *
-   */
+   */   
 
 
 
@@ -264,49 +328,90 @@ int main(int argc, char *argv[])
   step = 1;
   nchange = 1;
 
+
+  
+  MPI_Datatype column_type;
+  MPI_Type_vector(per_process_L,1,per_process_L+2,MPI_INT,&column_type);
+  MPI_Type_commit(&column_type);
+
+  int *recv_column_left=(int *)malloc(per_process_L+2*sizeof(int));
+  int *recv_column_right=(int *)malloc(per_process_L+2*sizeof(int));
+
+
+  /*if(rank==2){
+    display_matrix(local_old,per_process_L+2,per_process_L+2);
+  }*/
+  
+
+
   while (step <= maxstep)
   {
-    nchange = 0;
-    if(rank!=0 && rank!=size-1){
-    MPI_Issend(&(local_old[per_process_M][0]),N+2,MPI_INT,right,tag,topo_comm,&(request[0]));
-    MPI_Issend(&(local_old[1][0]),N+2,MPI_INT,left,tag,topo_comm,&(request[1]));
-    MPI_Recv((&local_old[0][0]),N+2,MPI_INT,left,tag,topo_comm,&(status[0]));
-    MPI_Recv((&local_old[per_process_M+1][0]),N+2,MPI_INT,right,tag,topo_comm,&(status[1]));
-    MPI_Wait(&request[0],&status[0]);
-    MPI_Wait(&request[1],&status[1]);
-    }
+    local_change=0;
+    //printf(" rank: %d up:%d down:%d left:%d right:%d  \n",rank,neighbours_rank[UP],neighbours_rank[DOWN],neighbours_rank[LEFT],neighbours_rank[RIGHT]);
 
-    if(rank==0){
-    MPI_Issend(&(local_old[per_process_M][0]),N+2,MPI_INT,right,tag,topo_comm,&(request[0]));
-    MPI_Recv(&(local_old[per_process_M+1][0]),N+2,MPI_INT,right,tag,topo_comm,&(status[1]));
-    MPI_Wait(&request[0],&status[0]);
-    MPI_Wait(&request[1],&status[1]);
-    }
+  
+    /*
+    //left
+    MPI_Issend(&(local_old[1][0]),1,column_type,neighbours_rank[LEFT],1,topo_comm_2d,&loop_request);
+    MPI_Recv(recv_column_left,per_process_L+2,MPI_INT,neighbours_rank[LEFT],2,topo_comm_2d,&loop_request);
+    //right
+    MPI_Issend(&(local_old[0][per_process_L]),1,column_type,neighbours_rank[RIGHT],2,topo_comm_2d,&loop_request);
+    MPI_Recv(recv_column_right,per_process_L+2,MPI_INT,neighbours_rank[RIGHT],tag,topo_comm_2d,&loop_request);
+    //up
+    MPI_Issend(&(local_old[1][1]),N,MPI_INT,neighbours_rank[UP],tag,topo_comm_2d,&loop_request);
+    MPI_Irecv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],tag,topo_comm_2d,&loop_request);
+    //down
+    MPI_Issend(&(local_old[per_process_L][1]),N,MPI_INT,neighbours_rank[DOWN],tag,topo_comm_2d,&loop_request);
+    MPI_Irecv(&(local_old[per_process_L+1][1]),N,MPI_INT,neighbours_rank[DOWN],tag,topo_comm_2d,&loop_request);
+    */
 
-    if(rank==size-1){
-      MPI_Issend(&(local_old[1][0]),N+2,MPI_INT,left,tag,topo_comm,&(request[1]));
-      MPI_Recv((&local_old[0][0]),N+2,MPI_INT,left,tag,topo_comm,&(status[0]));
+    //send up
+     MPI_Issend(&(local_old[1][1]),N,MPI_INT,neighbours_rank[UP],1,topo_comm_2d,&loop_request);
+     //MPI_Recv(&local_old[per_process_L+1][1],N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_status);
+     MPI_Irecv(&local_old[per_process_L+1][1],N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_request);
+
+    //send down
+     MPI_Issend(&(local_old[per_process_L][1]),N,MPI_INT,neighbours_rank[DOWN],2,topo_comm_2d,&loop_request);
+     //MPI_Recv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],2,topo_comm_2d,&loop_status);
+     MPI_Irecv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],2,topo_comm_2d,&loop_request);
+
+     //send left
+     MPI_Issend(&(local_old[1][1]),1,column_type,neighbours_rank[LEFT],3,topo_comm_2d,&loop_request);
+     //MPI_Recv(&local_old[1][per_process_L+1],1,column_type,neighbours_rank[RIGHT],3,topo_comm_2d,&loop_status);
+     MPI_Irecv(&local_old[1][per_process_L+1],1,column_type,neighbours_rank[RIGHT],3,topo_comm_2d,&loop_request);
+
+     //send right
+     MPI_Issend(&(local_old[1][per_process_L]),1,column_type,neighbours_rank[RIGHT],4,topo_comm_2d,&loop_request);
+     //MPI_Recv(&local_old[1][0],1,column_type,neighbours_rank[LEFT],4,topo_comm_2d,&loop_status);
+     MPI_Irecv(&local_old[1][0],1,column_type,neighbours_rank[LEFT],4,topo_comm_2d,&loop_request);
+
+
+
+    MPI_Wait(&loop_request,&loop_status);
+
+    /*
       MPI_Wait(&request[0],&status[0]);
       MPI_Wait(&request[1],&status[1]);
+      MPI_Wait(&request[2],&status[2]);
+      MPI_Wait(&request[3],&status[3]);
+
+    */
+
+    //printf("finish halo exchange in rank %d\n",rank);
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    /*if(rank==2 && step==1)
+    {
+      display_matrix(local_old,per_process_L+2,per_process_L+2);
+    
+    }*/
 
 
-    }
-
-    if(rank==3){
-    printf("rank %d receives:\n",rank);
-    for(j=0;j<N+2;j++){
-      printf("%d\t",local_old[0][j]);
-    }
-    printf("\nrank %d send:\n",rank);
-    for(j=0;j<N+2;j++){
-      printf("%d\t",local_old[per_process_M][j]);
-    }
-    printf("\n");
-    }
-
-    for (i=1; i<=per_process_M; i++)
+   
+ 
+    for (i=1; i<=per_process_L; i++)
      {
-       for (j=1; j<=N; j++)
+       for (j=1; j<=per_process_L; j++)
        {
          oldval = local_old[i][j];
          newval = oldval;
@@ -314,7 +419,7 @@ int main(int argc, char *argv[])
         /*
          * Set local[i][j] to be the maximum value of local_old[i][j]
          * and its four nearest neighbours
-         */
+        */
 
          if (oldval != 0)
           {
@@ -325,38 +430,91 @@ int main(int argc, char *argv[])
 
             if (newval != oldval)
             {
-                ++nchange;
+                ++local_change;
             }
           }
 
         local_new[i][j] = newval;
       }
     }
-      /*
-       *  Report progress every now and then
-       */
+    MPI_Barrier(MPI_COMM_WORLD);
+    //printf("local_change in rank %d is %d\n",rank,local_change);
 
-    
-    if (step % printfreq == 0)
-    {
-    printf("percolate: number of changes on step %d is %d\n",
-     step, nchange);
-    }
+
+    MPI_Reduce(&local_change,&nchange,1,MPI_INT,MPI_SUM,0,topo_comm_2d);
+
+    //if(rank==0){
+    //  printf("nchange is %d \n",nchange);
+    //}
+
+
     
 
       /*
        *  Copy back in preparation for next step, omitting halos
        */
-
-      for (i=1; i<=per_process_M; i++)
+ 
+      for (i=1; i<=per_process_L; i++)
       {
-        for (j=1; j<=N; j++)
+        for (j=1; j<=per_process_L; j++)
         {
         local_old[i][j] = local_new[i][j];
         }
       }
 
-  for (i=0; i <= per_process_M+1; i++)  // zero the bottom and top halos
+
+      /*
+       *  Report progress every now and then
+       */
+
+      
+      if (step % printfreq == 0)
+      {
+        printf("percolate: number of changes on step %d is %d\n",
+        step, nchange);
+      }
+      
+    
+
+   
+  //when nchang ==0 finish the loop
+
+    
+    MPI_Barrier(topo_comm_2d);
+    MPI_Status state;
+    //int stop_flag=0;
+    if(rank==0){
+      //printf("current nchange is %d",nchange);
+      if (step % printfreq == 0 || nchange==0)
+      {
+        printf("percolate: number of changes on step %d is %d\n",
+        step, nchange);
+      }
+
+
+
+      for(i=1;i<size;i++){
+            MPI_Ssend(&nchange,1,MPI_INT,i,tag,topo_comm_2d);
+            //printf("finish sending nchange in rank %d\n, send to %d",nchange,i);
+          }
+      
+    }
+
+    else{
+      MPI_Recv(&nchange,1,MPI_INT,0,tag,topo_comm_2d,&state);
+    }
+
+  
+    MPI_Barrier(topo_comm_2d);
+    if(nchange==0){
+      //printf("break from rank %d",rank);
+      break;
+    }
+
+ //}   
+
+
+  /*for (i=0; i <= per_process_M+1; i++)  // zero the bottom and top halos
   {
       local_old[i][0]   = 0;
       local_old[i][N+1] = 0;
@@ -366,19 +524,20 @@ int main(int argc, char *argv[])
   {
       local_old[0][j]   = 0;
       local_old[per_process_M+1][j] = 0;
-  }
-
-
-        step++;
-    }
+  }  
+    */  
   
-
-
+        MPI_Barrier(topo_comm_2d);
+        step++;
+  }
+  
+  
+  
    /*
     *  Update for a fixed number of iterations
     */
 
-if (nchange != 0)
+if (nchange != 0 && rank==0)
     {
       printf("percolate: WARNING max steps = %d reached before nchange = 0\n",
        maxstep);
@@ -388,33 +547,54 @@ if (nchange != 0)
    *  Copy the centre of old, excluding the halos, into map
    */
   
-  for (i=1; i<=per_process_M; i++)
+  for (i=1; i<=per_process_L; i++)
     {
-      for (j=1; j<=N; j++)
+      for (j=1; j<=per_process_L; j++)
       {
          local_map[i-1][j-1] = local_old[i][j];
       }
     }
 
 
-  MPI_Barrier(MPI_COMM_WORLD);
-
-  
-
-
+    /*if(rank==3){
+      display_matrix(local_map,per_process_L,per_process_L);
+    }*/
 
   //copy back to rank 0
-  
+
+    MPI_Issend(&local_map[0][0],per_process_L*per_process_L,MPI_INT,0,tag,topo_comm_2d,&request[0]);
+    
+    if(rank==0){
+      int index_i;
+      int index_j;
+      //display_matrix(map,per_process_L,per_process_L);
+      for(i=0;i<size;i++){
+        index_i=(i/topo_length)*per_process_L;
+        index_j=(i%topo_length)*per_process_L;
+        printf("index_i:%d index_j:%d i:%d \n",index_i,index_j,i);
+        MPI_Recv(&map[index_i][index_j],1,batch,i,tag,topo_comm_2d,&status[0]);
+        printf("finish recv from rank %d\n",i);
+        //MPI_Irecv(&map[index_i][index_j],1,batch,i,tag,topo_comm_2d,&request[0]);
+
+
+      }
+      //MPI_Issend(&local_map[0][0],per_process_L*per_process_L,MPI_INT,0,tag,topo_comm_2d,&request[0]);
+
+      MPI_Wait(&request[0],&status[0]);   
+      printf("finish copy back to rank 0\n"); 
+
+
+    }
+
+    
   //MPI_Gather(&(local_map[0][0]),per_process_area,MPI_INT,&(map[0][rank*per_process_M]),per_process_area,MPI_INT,0,MPI_COMM_WORLD);
   
-  /*if(rank==1){
-    display_matrix(local_map,per_process_M,N);
-  }*/
-  
-  MPI_Gather(&(local_map[0][0]),per_process_area,MPI_INT,&(map[0][rank*per_process_M]),per_process_area,MPI_INT,0,topo_comm);
-  
 
-  
+  /*
+  MPI_Gather(&(local_map[0][0]),per_process_area,MPI_INT,&(map[0][rank*per_process_M]),per_process_area,MPI_INT,0,topo_comm);
+  */
+
+  /*
   if(rank==0){
     for(i=per_process_M;i<per_process_M*2;i++){
       for(j=0;j<N;j++){
@@ -423,7 +603,7 @@ if (nchange != 0)
       printf("\n");
     }
   }
-  
+  */
 
 
 
@@ -432,16 +612,24 @@ if (nchange != 0)
   //
   
   //free(local_map[0]);
-  free(local_map);
+  //free(local_map);
   MPI_Barrier(MPI_COMM_WORLD);
   printf("free successfully\n");
 
   if(rank==0){
-    /*
+  /*  
    *  Test to see if percolation occurred by looking for positive numbers
    *  that appear on both the top and bottom edges
    */
 
+
+    for(i=0;i<M;i++){
+      for(j=0;j<N;j++){
+        printf("%d\t",map[i][j]);
+      }
+      printf("\n");
+    }
+  
   perc = 0;
 
   for (itop=0; itop < L; itop++)
@@ -458,7 +646,7 @@ if (nchange != 0)
   }
     }
 
-  if (perc != 0)
+  if(perc != 0)
     {
       printf("percolate: cluster DOES percolate\n");
     }
@@ -475,11 +663,10 @@ if (nchange != 0)
    */
 
   percwrite("map.pgm", map, 1);
-  
   }
-
   
 
+  
 
   //display_matrix(local_map,per_process_M,N);
   //printf("%d",local_map[0][0]);
