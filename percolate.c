@@ -131,6 +131,7 @@ int main(int argc, char *argv[])
   int N_process=dims_2d[1];
   int M=L/M_process;
   int N=L/N_process;
+
   printf("M_process:%d N_process:%d M:%d N:%d\n",M_process,N_process,M,N);
 
 
@@ -140,7 +141,7 @@ int main(int argc, char *argv[])
   int topo_length=sqrt(size);
   int per_process_L=L/topo_length;
 
-  int **local_map=alloc_2d_int(M,N);
+  
 
   printf("each M=%d,N=%d\n",M,N);
 
@@ -158,19 +159,33 @@ int main(int argc, char *argv[])
 
   int coords[2];
   MPI_Cart_coords(topo_comm_2d,rank,ndims_2d,coords);
+  int own_M=M;
+  int own_N=N;
+  int last_M=L-(M_process-1)*M;
+  int last_N=L-(N_process-1)*N;
+  if(coords[0]==M_process-1){
+    own_M=L-coords[0]*M;
+    //printf("own_M in rank %d is %d\n",rank,own_M);
+
+  }
+  if(coords[1]==N_process-1){
+    own_N=L-coords[1]*own_N;
+    //printf("own_N in rank %d is %d\n",rank,own_N);
+
+  }
+
+  int **local_map=alloc_2d_int(own_M,own_N);
+
+  printf("own_M in rank %d is %d\n",rank,own_M);
+
 
 
   //printf("rank:%d i:%d j:%d \n",rank,coords[0],coords[1]);
 
   
 
-  //create vector
-  MPI_Datatype batch,tmp;
-  MPI_Type_vector(M,N,L,MPI_INT,&batch);
-  MPI_Type_vector(M,N,L,MPI_INT,&tmp);
-  MPI_Type_create_resized(tmp,0,sizeof(int),&batch);
-
-  MPI_Type_commit(&batch); 
+  
+  
 
 
 
@@ -262,20 +277,43 @@ int main(int argc, char *argv[])
   if(rank==0){
     int index_i;
     int index_j;
+    int send_M;
+    int send_N;
     int target_coords[2];
     for(i=0;i<size;i++){
+      
       //int target_coords[2];
       MPI_Cart_coords(topo_comm_2d,i,ndims_2d,target_coords);
       int index_i=target_coords[0]*M;
       int index_j=target_coords[1]*N;
 
-      printf("index_i:%d index_j:%d i:%d\n",index_i,index_j,i);
+      send_M=M;
+      send_N=N;
+      if(target_coords[0]==M_process-1){
+          send_M=last_M;
+          //printf("send_M in rank %d is %d\n",i,send_M);
+
+      }
+      if(target_coords[1]==N_process-1){
+        send_N=last_N;
+        //printf("send_N in rank %d is %d\n",i,send_N);
+      }
+
+      //create vector
+      MPI_Datatype batch,tmp;
+      MPI_Type_vector(send_M,send_N,L, MPI_INT,&batch);
+      //MPI_Type_vector(M,N,L,MPI_INT,&tmp);
+      //MPI_Type_create_resized(tmp,0,sizeof(int),&batch);
+
+      MPI_Type_commit(&batch); 
+
+      //printf("index_i:%d index_j:%d i:%d\n",index_i,index_j,i);
       //printf("per_process_L:%d topo_length:%d\n",per_process_L,topo_length);
       MPI_Issend(&map[index_i][index_j],1,batch,i,tag,topo_comm_2d,&request[0]);
     }
   }
 
-  MPI_Irecv(&local_map[0][0],M*N,MPI_INT,0,tag,topo_comm_2d,&request[0]);
+  MPI_Irecv(&local_map[0][0],own_M*own_N,MPI_INT,0,tag,topo_comm_2d,&request[0]);
    
   MPI_Wait(&request[0],&status[0]);
 
@@ -285,9 +323,9 @@ int main(int argc, char *argv[])
 
 
   
-
-  /*if(rank==0){
-    display_matrix(local_map,per_process_L,per_process_L);
+  /*
+  if(rank==14){
+    display_matrix(local_map,own_M,own_N);
   }*/
 
   
@@ -306,28 +344,28 @@ int main(int argc, char *argv[])
   //int local_old[per_process_area+2][N+2];
   //int local_new[per_process_M+2][N+2];
 
-  int ** local_old=alloc_2d_int(M+2,N+2);
-  int ** local_new=alloc_2d_int(M+2,N+2);
+  int ** local_old=alloc_2d_int(own_M+2,own_N+2);
+  int ** local_new=alloc_2d_int(own_M+2,own_N+2);
 
 
-  for (i=1; i <= M; i++)
+  for (i=1; i <= own_M; i++)
   {
-      for (j=1; j <= N; j++)
+      for (j=1; j <= own_N; j++)
     {
       local_old[i][j] = local_map[i-1][j-1];
     }
   }
 
-   for (i=0; i <= M+1; i++)  // zero the bottom and top halos
+   for (i=0; i <= own_M+1; i++)  // zero the bottom and top halos
   {
       local_old[i][0]   = 0;
-      local_old[i][N+1] = 0;
+      local_old[i][own_N+1] = 0;
   }
 
-  for (j=0; j <= N+1; j++)  // zero the left and right halos
+  for (j=0; j <= own_N+1; j++)  // zero the left and right halos
   {
       local_old[0][j]   = 0;
-      local_old[M+1][j] = 0;
+      local_old[own_M+1][j] = 0;
   }
 
 
@@ -347,11 +385,11 @@ int main(int argc, char *argv[])
 
   step = 1;
   nchange = 1;
-
+ 
 
   
   MPI_Datatype column_type;
-  MPI_Type_vector(M,1,N+2,MPI_INT,&column_type);
+  MPI_Type_vector(own_M,1,own_N+2,MPI_INT,&column_type);
   MPI_Type_commit(&column_type);
 
   //int *recv_column_left=(int *)malloc(N+2*sizeof(int));
@@ -360,10 +398,10 @@ int main(int argc, char *argv[])
   MPI_Barrier(MPI_COMM_WORLD);
 
   
-  if(rank==2){
-    display_matrix(local_old,M+2,M+2);
+  /*if(rank==2){
+    display_matrix(local_old,own_M+2,own_N+2);
   }
-  
+  */
 
 
 
@@ -389,22 +427,22 @@ int main(int argc, char *argv[])
     */
 
     //send up
-     MPI_Issend(&(local_old[1][1]),N,MPI_INT,neighbours_rank[UP],1,topo_comm_2d,&loop_request);
+     MPI_Issend(&(local_old[1][1]),own_N,MPI_INT,neighbours_rank[UP],1,topo_comm_2d,&loop_request);
      //MPI_Recv(&local_old[per_process_L+1][1],N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_status);
-     MPI_Irecv(&local_old[M+1][1],N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_request);
+     MPI_Irecv(&local_old[own_M+1][1],own_N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_request);
 
     //send down
-     MPI_Issend(&(local_old[M][1]),N,MPI_INT,neighbours_rank[DOWN],0,topo_comm_2d,&loop_request);
+     MPI_Issend(&(local_old[own_M][1]),own_N,MPI_INT,neighbours_rank[DOWN],0,topo_comm_2d,&loop_request);
      //MPI_Recv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],2,topo_comm_2d,&loop_status);
-     MPI_Irecv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],0,topo_comm_2d,&loop_request);
+     MPI_Irecv(&local_old[0][1],own_N,MPI_INT,neighbours_rank[UP],0,topo_comm_2d,&loop_request);
 
      //send left
      MPI_Issend(&(local_old[1][1]),1,column_type,neighbours_rank[LEFT],3,topo_comm_2d,&loop_request);
      //MPI_Recv(&local_old[1][per_process_L+1],1,column_type,neighbours_rank[RIGHT],3,topo_comm_2d,&loop_status);
-     MPI_Irecv(&local_old[1][N+1],1,column_type,neighbours_rank[RIGHT],3,topo_comm_2d,&loop_request);
+     MPI_Irecv(&local_old[1][own_N+1],1,column_type,neighbours_rank[RIGHT],3,topo_comm_2d,&loop_request);
 
      //send right
-     MPI_Issend(&(local_old[1][N]),1,column_type,neighbours_rank[RIGHT],4,topo_comm_2d,&loop_request);
+     MPI_Issend(&(local_old[1][own_N]),1,column_type,neighbours_rank[RIGHT],4,topo_comm_2d,&loop_request);
      //MPI_Recv(&local_old[1][0],1,column_type,neighbours_rank[LEFT],4,topo_comm_2d,&loop_status);
      MPI_Irecv(&local_old[1][0],1,column_type,neighbours_rank[LEFT],4,topo_comm_2d,&loop_request);
 
@@ -420,9 +458,9 @@ int main(int argc, char *argv[])
       * overlap calculation
       *
       */
-     for (i=2; i<=M-1; i++)
+     for (i=2; i<=own_M-1; i++)
      {
-       for (j=2; j<=N-1; j++)
+       for (j=2; j<=own_N-1; j++)
        {
          oldval = local_old[i][j];
          newval = oldval;
@@ -450,6 +488,9 @@ int main(int argc, char *argv[])
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
+    if(rank==12&&step==1000){
+    printf("nchange happen in inside is %d\n",local_change);
+  }
 
 
 
@@ -460,7 +501,7 @@ int main(int argc, char *argv[])
 
     MPI_Wait(&loop_request,&loop_status);
 
-    printf("finish halo exchange in rank %d\n",rank);
+    //printf("finish halo exchange in rank %d\n",rank);
     MPI_Barrier(MPI_COMM_WORLD);
  
 /*
@@ -479,7 +520,7 @@ int main(int argc, char *argv[])
       *
       */
 
-    for(i=1;i<=M;i++){
+    for(i=1;i<=own_M;i++){
       oldval=local_old[i][1];
       newval=oldval;
         /*
@@ -497,30 +538,41 @@ int main(int argc, char *argv[])
             if (newval != oldval)
             {
                 ++local_change;
+                if(step==1001){
+                  printf("error in [%d][1],new:%d,old:%d\n",j,newval,oldval);
+                }
             }
           }
           local_new[i][1]=newval;
 
 
-          oldval=local_old[i][N];
+          oldval=local_old[i][own_N];
           newval=oldval;
           if (oldval != 0)
           {
-            if (local_old[i-1][N] > newval) newval =local_old[i-1][N];
-            if (local_old[i+1][N] > newval) newval = local_old[i+1][N];
-            if (local_old[i][N-1] > newval) newval = local_old[i][N-1];
-            if (local_old[i][N+1] > newval) newval = local_old[i][N+1];
+            if (local_old[i-1][own_N] > newval) newval =local_old[i-1][own_N];
+            if (local_old[i+1][own_N] > newval) newval = local_old[i+1][own_N];
+            if (local_old[i][own_N-1] > newval) newval = local_old[i][own_N-1];
+            if (local_old[i][own_N+1] > newval) newval = local_old[i][own_N+1];
 
             if (newval != oldval)
             {
                 ++local_change;
+                if(step==1000){
+                  printf("error in [%d][own_N],new:%d,old:%d\n",j,newval,oldval);
+                }
             }
           }
-          local_new[i][N] = newval;
+          local_new[i][own_N] = newval;
 
     }
 
-    for(j=1;j<=N;j++){
+
+    if(rank==12&&step==1000){
+    printf(" nchange happen in column_type is %d\n",local_change);
+     }
+
+    for(j=1;j<=own_N;j++){
       oldval=local_old[1][j];
       newval=oldval;
         /*
@@ -538,32 +590,38 @@ int main(int argc, char *argv[])
             if (newval != oldval)
             {
                 ++local_change;
+                
             }
           }
 
           local_new[1][j] = newval;
 
 
-          oldval=local_old[M][j];
+          oldval=local_old[own_M][j];
           newval=oldval;
           if (oldval != 0)
           {
-            if (local_old[M-1][j] > newval) newval =local_old[M-1][j];
-            if (local_old[M+1][j] > newval) newval = local_old[M+1][j];
-            if (local_old[M][j-1] > newval) newval = local_old[M][j-1];
-            if (local_old[M][j+1] > newval) newval = local_old[M][j+1];
+            if (local_old[own_M-1][j] > newval) newval =local_old[own_M-1][j];
+            if (local_old[own_M+1][j] > newval) newval = local_old[own_M+1][j];
+            if (local_old[own_M][j-1] > newval) newval = local_old[own_M][j-1];
+            if (local_old[own_M][j+1] > newval) newval = local_old[own_M][j+1];
 
             if (newval != oldval)
             {
                 ++local_change;
+                if(step==1000){
+                  printf("error in [own_M][%d],new:%d,old:%d\n",j,newval,oldval);
+                }
             }
           }
 
-          local_new[M][j]=newval;
-
-
+          local_new[own_M][j]=newval;
 
     }
+
+    if(rank==12&&local_change!=0&&step==1000){
+    printf(" nchange happen in row \n");
+     }
 
 
 
@@ -604,6 +662,11 @@ int main(int argc, char *argv[])
     //printf("local_change in rank %d is %d\n",rank,local_change);
 
 
+    if(step==1000 || step ==1200){
+      printf("change in rank %d is %d",rank,local_change);
+    }
+
+
     MPI_Reduce(&local_change,&nchange,1,MPI_INT,MPI_SUM,0,topo_comm_2d);
 
     //if(rank==0){
@@ -617,9 +680,9 @@ int main(int argc, char *argv[])
        *  Copy back in preparation for next step, omitting halos
        */
  
-      for (i=1; i<=M; i++)
+      for (i=1; i<=own_M; i++)
       {
-        for (j=1; j<=N; j++)
+        for (j=1; j<=own_N; j++)
         {
         local_old[i][j] = local_new[i][j];
         }
@@ -683,18 +746,18 @@ int main(int argc, char *argv[])
  //}   
 
 
-  /*for (i=0; i <= per_process_M+1; i++)  // zero the bottom and top halos
+  /*for (i=0; i <= own_M+1; i++)  // zero the bottom and top halos
   {
       local_old[i][0]   = 0;
-      local_old[i][N+1] = 0;
+      local_old[i][own_N+1] = 0;
   }
 
-  for (j=0; j <= N+1; j++)  // zero the left and right halos
+  for (j=0; j <= own_N+1; j++)  // zero the left and right halos
   {
       local_old[0][j]   = 0;
-      local_old[per_process_M+1][j] = 0;
-  }  
-    */  
+      local_old[own_M+1][j] = 0;
+  } */ 
+     
   
         MPI_Barrier(topo_comm_2d);
         step++;
@@ -718,9 +781,9 @@ if (nchange != 0 && rank==0)
    *  Copy the centre of old, excluding the halos, into map
    */
   
-  for (i=1; i<=M; i++)
+  for (i=1; i<=own_M; i++)
     {
-      for (j=1; j<=N; j++)
+      for (j=1; j<=own_N; j++)
       {
          local_map[i-1][j-1] = local_old[i][j];
       }
@@ -733,17 +796,36 @@ if (nchange != 0 && rank==0)
     
   //copy back to rank 0
 
-    MPI_Issend(&local_map[0][0],M*N,MPI_INT,0,tag,topo_comm_2d,&request[0]);
+    MPI_Issend(&local_map[0][0],own_M*own_N,MPI_INT,0,tag,topo_comm_2d,&request[0]);
     
     if(rank==0){
       int index_i;
       int index_j;
       int target_coords[2];
+      int send_M;
+      int send_N;
       //display_matrix(map,per_process_L,per_process_L);
       for(i=0;i<size;i++){
         MPI_Cart_coords(topo_comm_2d,i,ndims_2d,target_coords);
         index_i=target_coords[0]*M;
         index_j=target_coords[1]*N;
+
+
+        send_M=M;
+        send_N=N;
+        if(target_coords[0]==M_process-1){
+           send_M=last_M;
+        }
+        if(target_coords[1]==N_process-1){
+          send_N=last_N;
+        }
+        //create vector
+        MPI_Datatype batch,tmp;
+        MPI_Type_vector(send_M,send_N,L, MPI_INT,&batch);
+        //MPI_Type_vector(M,N,L,MPI_INT,&tmp);
+        //MPI_Type_create_resized(tmp,0,sizeof(int),&batch);
+
+        MPI_Type_commit(&batch); 
         //printf("index_i:%d index_j:%d i:%d \n",index_i,index_j,i);
         MPI_Recv(&map[index_i][index_j],1,batch,i,tag,topo_comm_2d,&status[0]);
         //printf("finish recv from rank %d\n",i);
@@ -754,7 +836,7 @@ if (nchange != 0 && rank==0)
       //MPI_Issend(&local_map[0][0],per_process_L*per_process_L,MPI_INT,0,tag,topo_comm_2d,&request[0]);
 
       MPI_Wait(&request[0],&status[0]);   
-      printf("finish copy back to rank 0\n"); 
+      //printf("finish copy back to rank 0\n"); 
 
 
     }
