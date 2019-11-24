@@ -166,8 +166,8 @@ int main(int argc, char *argv[])
 
   //create vector
   MPI_Datatype batch,tmp;
-  MPI_Type_vector(N,M,L,MPI_INT,&batch);
-  MPI_Type_vector(N,M,L,MPI_INT,&tmp);
+  MPI_Type_vector(M,N,L,MPI_INT,&batch);
+  MPI_Type_vector(M,N,L,MPI_INT,&tmp);
   MPI_Type_create_resized(tmp,0,sizeof(int),&batch);
 
   MPI_Type_commit(&batch); 
@@ -279,14 +279,14 @@ int main(int argc, char *argv[])
    
   MPI_Wait(&request[0],&status[0]);
 
-  printf("finish scatter\n");
+  printf("finish scatter in rank %d\n",rank);
 
 
 
 
   
 
-  /*if(rank==2){
+  /*if(rank==0){
     display_matrix(local_map,per_process_L,per_process_L);
   }*/
 
@@ -324,10 +324,10 @@ int main(int argc, char *argv[])
       local_old[i][N+1] = 0;
   }
 
-  for (j=0; j <= M+1; j++)  // zero the left and right halos
+  for (j=0; j <= N+1; j++)  // zero the left and right halos
   {
       local_old[0][j]   = 0;
-      local_old[N+1][j] = 0;
+      local_old[M+1][j] = 0;
   }
 
 
@@ -351,17 +351,20 @@ int main(int argc, char *argv[])
 
   
   MPI_Datatype column_type;
-  MPI_Type_vector(N,1,M+2,MPI_INT,&column_type);
+  MPI_Type_vector(M,1,N+2,MPI_INT,&column_type);
   MPI_Type_commit(&column_type);
 
   //int *recv_column_left=(int *)malloc(N+2*sizeof(int));
   //int *recv_column_right=(int *)malloc(N+2*sizeof(int));
 
-  /*
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  
   if(rank==2){
-    display_matrix(local_old,per_process_L+2,per_process_L+2);
+    display_matrix(local_old,M+2,M+2);
   }
-  */
+  
+
 
 
   while (step <= maxstep)
@@ -386,14 +389,14 @@ int main(int argc, char *argv[])
     */
 
     //send up
-     MPI_Issend(&(local_old[1][1]),M,MPI_INT,neighbours_rank[UP],1,topo_comm_2d,&loop_request);
+     MPI_Issend(&(local_old[1][1]),N,MPI_INT,neighbours_rank[UP],1,topo_comm_2d,&loop_request);
      //MPI_Recv(&local_old[per_process_L+1][1],N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_status);
-     MPI_Irecv(&local_old[M+1][1],M,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_request);
+     MPI_Irecv(&local_old[M+1][1],N,MPI_INT,neighbours_rank[DOWN],1,topo_comm_2d,&loop_request);
 
     //send down
-     MPI_Issend(&(local_old[M][1]),M,MPI_INT,neighbours_rank[DOWN],0,topo_comm_2d,&loop_request);
+     MPI_Issend(&(local_old[M][1]),N,MPI_INT,neighbours_rank[DOWN],0,topo_comm_2d,&loop_request);
      //MPI_Recv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],2,topo_comm_2d,&loop_status);
-     MPI_Irecv(&local_old[0][1],M,MPI_INT,neighbours_rank[UP],0,topo_comm_2d,&loop_request);
+     MPI_Irecv(&local_old[0][1],N,MPI_INT,neighbours_rank[UP],0,topo_comm_2d,&loop_request);
 
      //send left
      MPI_Issend(&(local_old[1][1]),1,column_type,neighbours_rank[LEFT],3,topo_comm_2d,&loop_request);
@@ -457,7 +460,7 @@ int main(int argc, char *argv[])
 
     MPI_Wait(&loop_request,&loop_status);
 
-    //printf("finish halo exchange in rank %d\n",rank);
+    printf("finish halo exchange in rank %d\n",rank);
     MPI_Barrier(MPI_COMM_WORLD);
  
 /*
