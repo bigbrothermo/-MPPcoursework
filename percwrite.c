@@ -195,3 +195,14 @@ void display_matrix(int** matrix,int rows,int cols){
     printf("\n");
   } 
 }
+
+int calculate_sum(int ** matrix,int rows,int cols){
+  int i,j;
+  int sum;
+  for(i=0;i<rows;i++){
+    for(j=0;j<cols;j++){
+      sum=sum+matrix[i][j];
+    }
+  }
+  return sum;
+}
