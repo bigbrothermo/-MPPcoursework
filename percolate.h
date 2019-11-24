@@ -16,8 +16,8 @@
  *  processes, then M = L/P and N = L
  */
 
-#define M L
-#define N L
+//#define M L
+//#define N L
 
 
 #define ndims 1
@@ -33,7 +33,7 @@
  *  Visualisation
  */
 
-void percwrite(char *percfile, int map[M][N], int ncluster);
+void percwrite(char *percfile, int map[L][L], int ncluster);
 
 /*
  *  Random numbers
