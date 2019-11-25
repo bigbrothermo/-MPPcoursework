@@ -19,6 +19,8 @@ int main(int argc, char *argv[])
     */
 
   MPI_Init(&argc,&argv);
+  MPI_Barrier(MPI_COMM_WORLD);
+  double time_init=MPI_Wtime();
   
   
   int rank,size;
@@ -57,7 +59,7 @@ int main(int argc, char *argv[])
 
   int i, j, nhole, step, maxstep, oldval, newval, nchange,local_change, printfreq;
   int sum,local_sum;
-  double average;
+  double average=0;
   int itop, ibot, perc;
   double r;
 
@@ -193,10 +195,7 @@ int main(int argc, char *argv[])
 
 
   MPI_Barrier(MPI_COMM_WORLD);
-  //scatter map to each prece
-  
-  
-  
+  double time_before_scatter=MPI_Wtime();
   /*
    * Scatter the map's data in rank 0 to each process,specify the M and N in each sending
    */
@@ -235,7 +234,8 @@ int main(int argc, char *argv[])
    
   MPI_Wait(&request,&status);
 
-
+  MPI_Barrier(MPI_COMM_WORLD);
+  double time_finish_scatter=MPI_Wtime();
 
 
 
@@ -298,6 +298,9 @@ int main(int argc, char *argv[])
 
 
 
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  double time_before_loop=MPI_Wtime();
 
   while (step <= maxstep)
   {
@@ -538,7 +541,8 @@ int main(int argc, char *argv[])
     step++;
   }
   
-
+  MPI_Barrier(MPI_COMM_WORLD);
+  double time_finish_loop=MPI_Wtime();
 
 
 
@@ -552,6 +556,9 @@ if (nchange != 0 && rank==0)
        maxstep);
     }
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    double time_before_copy_back=MPI_Wtime(); 
+
   /*
    *  Copy the centre of old, excluding the halos, into map
    */
@@ -563,6 +570,7 @@ if (nchange != 0 && rank==0)
          local_map[i-1][j-1] = local_old[i][j];
       }
     }
+
 
     
   /*
@@ -611,6 +619,7 @@ if (nchange != 0 && rank==0)
     
 
   MPI_Barrier(MPI_COMM_WORLD);
+  double time_finish_copy_back=MPI_Wtime(); 
 
 
 
@@ -654,6 +663,23 @@ if (nchange != 0 && rank==0)
    */
 
   percwrite("map.pgm", map, 1);
+  }
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  double time_finish_output=MPI_Wtime();
+
+  if(rank==0){
+    double init_time=time_before_scatter-time_init;
+    double scatter_time=time_finish_scatter - time_before_scatter;
+    double loop_time= time_finish_loop-time_before_loop;
+    double copy_back_time=time_finish_copy_back - time_before_copy_back;
+
+    printf("Runtime\n");
+    printf("Init_time:%f\n",init_time);
+    printf("Scatter_time:%f\n",scatter_time);
+    printf("Loop_time:%f\n",loop_time);
+    printf("Copy_back_time:%f\n",copy_back_time);
+
   }
   
 
