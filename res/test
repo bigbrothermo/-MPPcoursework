@@ -1,0 +1,38 @@
+percolate: params are L = 288, rho = 0.411000, seed = 1564
+each M=144,N=144 in rank 0
+each M=144,N=144 in rank 1
+each M=144,N=144 in rank 2
+each M=144,N=144 in rank 3
+percolate: rho = 0.411000, actual density = 0.408119
+percolate: number of changes on step 100 is 11325
+Average: current average value of grid on step 100 is 20318.105915
+percolate: number of changes on step 200 is 7836
+Average: current average value of grid on step 200 is 23553.081959
+percolate: number of changes on step 300 is 3986
+Average: current average value of grid on step 300 is 24618.337493
+percolate: number of changes on step 400 is 2453
+Average: current average value of grid on step 400 is 25121.672912
+percolate: number of changes on step 500 is 2005
+Average: current average value of grid on step 500 is 25284.231674
+percolate: number of changes on step 600 is 1419
+Average: current average value of grid on step 600 is 25322.745250
+percolate: number of changes on step 700 is 832
+Average: current average value of grid on step 700 is 25325.494382
+percolate: number of changes on step 800 is 426
+Average: current average value of grid on step 800 is 25326.698266
+percolate: number of changes on step 900 is 122
+Average: current average value of grid on step 900 is 25327.129413
+percolate: number of changes on step 1000 is 0
+Average: current average value of grid on step 1000 is 25327.239849
+percolate: cluster DOES percolate
+percwrite: only visualising the largest cluster
+percwrite: maximum cluster size is 24569
+percwrite: opening file <map.pgm>
+percwrite: writing data ...
+percwrite: ... done
+percwrite: file closed
+Runtime
+Init_time:0.018314
+Scatter_time:0.000454
+Loop_time:0.203917
+Copy_back_time:0.000223

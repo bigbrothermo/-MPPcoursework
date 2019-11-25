@@ -44,14 +44,18 @@ int main(int argc, char *argv[])
    *  these two steps in serial
    */ 
 
-  int map[L][L];
+  int L=288;
+
+  int ** map=alloc_2d_int(L,L);
 
   /*
    *  Variables that define the simulation
    */
 
-  int seed;
+  int seed=1564;
   double rho;
+
+  
 
   /*
    *  Local variables
@@ -63,11 +67,12 @@ int main(int argc, char *argv[])
   int itop, ibot, perc;
   double r;
 
-  if (argc != 2)
+  /*if (argc != 2)
     {
       printf("Usage: percolate <seed>\n");
       return 1;
     }
+    */
 
   /*
    *  Set most important value: the rock density rho (between 0 and 1)
@@ -79,11 +84,44 @@ int main(int argc, char *argv[])
    *  Set the randum number seed and initialise the generator
    */
 
-  seed = atoi(argv[1]);
+  //seed = atoi(argv[1]);
+
+
+  int k=1;
+  while(k<argc){
+    if(argv[k][0]!='-'){
+      printf("Argument # Error : Arguments must start with -\n");
+      exit(0);
+    }
+  switch(argv[k][1]){
+      case 'L':L=atoi(argv[k+1]);break;
+      case 'r':rho=atof(argv[k+1]);break;
+      case 's':seed=atoi(argv[k+1]);break;
+      default : printf("Unrec argumen-t %s\n", argv[k]); break;
+    }
+
+    k=k+2;
+    
+  }  
+
+//inputdata filter
+  /*
+  if(filter_arguments(&grid)==1){
+    exit(1);
+  }
+
+  if(filter_output(&output)==1){
+    exit(1);
+  }  */
+
+
   if(rank==0)
     printf("percolate: params are L = %d, rho = %f, seed = %d\n", L, rho, seed);
 
   rinit(seed);
+
+
+
 
 
  
@@ -662,7 +700,7 @@ if (nchange != 0 && rank==0)
    *  clusters etc.
    */
 
-  percwrite("map.pgm", map, 1);
+  percwrite("map.pgm", map, L, 1);
   }
 
   MPI_Barrier(MPI_COMM_WORLD);

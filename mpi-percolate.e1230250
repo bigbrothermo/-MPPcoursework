@@ -1,0 +1,6 @@
+MPT: Launcher network accept (MPI_LAUNCH_TIMEOUT) timed out
+MPT: Launcher on r1i5n18 failed to receive connection(s) from: r1i5n18.ib0.icexa.epcc.ed.ac.uk
+MPT ERROR: could not launch executable
+	(HPE MPT 2.18  10/02/18 04:03:22)
+./percolate: No such file or directory
+/var/spool/PBS/mom_priv/jobs/1230250.indy2-login0.SC: line 12:  5871 Killed                  mpiexec_mpt -ppn 36 -n 4 ./percolate 1564

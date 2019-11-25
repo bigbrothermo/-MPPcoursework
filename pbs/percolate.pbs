@@ -1,0 +1,13 @@
+#!/bin/bash --login
+#
+#PBS -N percolate
+#PBS -l select=1:ncpus=36
+#PBS -l place=scatter:excl
+#PBS -l walltime=0:5:0
+#PBS -A d171-s1952256
+
+module load mpt
+module load intel-compilers-18
+
+mpiexec_mpt -ppn 36 -n 4 /lustre/home/d171/s1952256/message-passing-programming/coursework/percolate/C-SER/percolate 1564
+

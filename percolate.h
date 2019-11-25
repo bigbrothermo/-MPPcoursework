@@ -6,7 +6,8 @@
  *  System size L
  */
 
-#define L 288
+//#define L 288
+
 
 /*
  *  Although overall system is square, i.e. size L x L, we will define
@@ -25,6 +26,8 @@
 #define FALSE 0
 
 
+
+
 /*
  *  Prototypes for supplied functions
  */
@@ -33,7 +36,7 @@
  *  Visualisation
  */
 
-void percwrite(char *percfile, int map[L][L], int ncluster);
+void percwrite(char *percfile, int ** map, int L,int ncluster);
 
 /*
  *  Random numbers
@@ -46,3 +49,4 @@ float uni(void);
 
 int **alloc_2d_int(int rows,int cols);
 void display_matrix(int** matrix,int rows,int cols);
+
